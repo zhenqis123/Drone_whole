@@ -346,7 +346,7 @@ if __name__ == "__main__":
     Filp_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(p=1.0)
     ])
-    dataset = OfflineDataset('/data/xiziheng/drone_data', transform=Filp_transform, seq_len=args.seq_len)
+    dataset = OfflineDataset('/data/xiziheng/ncps/drone_data', transform=Filp_transform, seq_len=args.seq_len)
     val_size = int(args.test_size * len(dataset))
     train_size = len(dataset) - val_size
     # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
