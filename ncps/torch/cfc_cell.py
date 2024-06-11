@@ -134,6 +134,7 @@ class CfCCell(nn.Module):
                 torch.nn.init.xavier_uniform_(w)
 
     def forward(self, input, hx, ts):
+        # print(input.shape, hx.shape)
         x = torch.cat([input, hx], 1)
         if self.backbone_layers > 0:
             x = self.backbone(x)

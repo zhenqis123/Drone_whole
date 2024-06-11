@@ -18,14 +18,14 @@ import numpy as np
 from typing import Optional, Union
 
 
-class LTCCell(nn.Module):
+class LTCCell_new(nn.Module):
     def __init__(
         self,
         wiring,
         in_features=None,
         input_mapping="affine",
         output_mapping="affine",
-        ode_unfolds=6,
+        ode_unfolds=10,
         epsilon=1e-8,
         implicit_param_constraints=False,
     ):
@@ -43,7 +43,7 @@ class LTCCell(nn.Module):
         :param epsilon:
         :param implicit_param_constraints:
         """
-        super(LTCCell, self).__init__()
+        super(LTCCell_new, self).__init__()
         if in_features is not None:
             wiring.build(in_features)
         if not wiring.is_built():
@@ -64,6 +64,11 @@ class LTCCell(nn.Module):
             "sensory_w": (0.001, 1.0),
             "sensory_sigma": (3, 8),
             "sensory_mu": (0.3, 0.8),
+            "c": (0.7,0.9),
+            "b": (0.9, 1.1),
+            "a": (0.06, 0.1),
+            "p": (-0.2, -0.05),
+            "q": (0.9, 1.1)
         }
         self._wiring = wiring
         self._input_mapping = input_mapping
@@ -96,7 +101,11 @@ class LTCCell(nn.Module):
     @property
     def sensory_synapse_count(self):
         return np.sum(np.abs(self._wiring.adjacency_matrix))
-
+    
+    @property
+    def state_size_fitz(self):
+        return (self._wiring.units, 2)
+    
     def add_weight(self, name, init_value, requires_grad=True):
         param = torch.nn.Parameter(init_value, requires_grad=requires_grad)
         self.register_parameter(name, param)
@@ -111,6 +120,24 @@ class LTCCell(nn.Module):
 
     def _allocate_parameters(self):
         self._params = {}
+        ## customized fitzhough nagumo parameters
+
+        self._params["c"] = self.add_weight(
+            name="c", init_value=self._get_init_value((self.state_size,), "c")
+        )
+
+        self._params["b"] = self.add_weight(
+            name="b", init_value=self._get_init_value((self.state_size,), "b")
+        )
+        self._params["a"] = self.add_weight(
+            name="a", init_value=self._get_init_value((self.state_size,), "a")
+        )
+        self._params["p"] = self.add_weight(
+            name="p", init_value=self._get_init_value((self.state_size,), "p")
+        )
+        self._params["q"] = self.add_weight(
+            name="q", init_value=self._get_init_value((self.state_size,), "q")
+        )
         self._params["gleak"] = self.add_weight(
             name="gleak", init_value=self._get_init_value((self.state_size,), "gleak")
         )
@@ -200,8 +227,56 @@ class LTCCell(nn.Module):
         x = sigma * mues
         return torch.sigmoid(x)
 
-    def _ode_solver(self, inputs, state, elapsed_time):
-        v_pre = state
+    # def _ode_solver(self, inputs, state, elapsed_time):
+    #     v_pre = state
+
+    #     # We can pre-compute the effects of the sensory neurons here
+    #     sensory_w_activation = self.make_positive_fn(
+    #         self._params["sensory_w"]
+    #     ) * self._sigmoid(
+    #         inputs, self._params["sensory_mu"], self._params["sensory_sigma"]
+    #     )
+    #     sensory_w_activation = (
+    #         sensory_w_activation * self._params["sensory_sparsity_mask"]
+    #     )
+
+    #     sensory_rev_activation = sensory_w_activation * self._params["sensory_erev"]
+
+    #     # Reduce over dimension 1 (=source sensory neurons)
+    #     w_numerator_sensory = torch.sum(sensory_rev_activation, dim=1)
+    #     w_denominator_sensory = torch.sum(sensory_w_activation, dim=1)
+
+    #     # cm/t is loop invariant
+    #     cm_t = self.make_positive_fn(self._params["cm"]) / (
+    #         elapsed_time / self._ode_unfolds
+    #     )
+
+    #     # Unfold the multiply ODE multiple times into one RNN step
+    #     w_param = self.make_positive_fn(self._params["w"])
+    #     for t in range(self._ode_unfolds):
+    #         w_activation = w_param * self._sigmoid(
+    #             v_pre, self._params["mu"], self._params["sigma"]
+    #         )
+
+    #         w_activation = w_activation * self._params["sparsity_mask"]
+
+    #         rev_activation = w_activation * self._params["erev"]
+
+    #         # Reduce over dimension 1 (=source neurons)
+    #         w_numerator = torch.sum(rev_activation, dim=1) + w_numerator_sensory
+    #         w_denominator = torch.sum(w_activation, dim=1) + w_denominator_sensory
+
+    #         gleak = self.make_positive_fn(self._params["gleak"])
+    #         numerator = cm_t * v_pre + gleak * self._params["vleak"] + w_numerator
+    #         denominator = cm_t + gleak + w_denominator
+
+    #         # Avoid dividing by 0
+    #         v_pre = numerator / (denominator + self._epsilon)
+
+    #     return v_pre
+    
+    def _ode_solver_fitz(self, inputs, state, elapsed_time):
+        v_pre = state[:, : ,0]
 
         # We can pre-compute the effects of the sensory neurons here
         sensory_w_activation = self.make_positive_fn(
@@ -217,13 +292,9 @@ class LTCCell(nn.Module):
 
         # Reduce over dimension 1 (=source sensory neurons)
         w_numerator_sensory = torch.sum(sensory_rev_activation, dim=1)
-        w_denominator_sensory = torch.sum(sensory_w_activation, dim=1)
 
         # cm/t is loop invariant
-        cm_t = self.make_positive_fn(self._params["cm"]) / (
-            elapsed_time / self._ode_unfolds
-        )
-
+        delta_t = elapsed_time / self._ode_unfolds
         # Unfold the multiply ODE multiple times into one RNN step
         w_param = self.make_positive_fn(self._params["w"])
         for t in range(self._ode_unfolds):
@@ -237,18 +308,24 @@ class LTCCell(nn.Module):
 
             # Reduce over dimension 1 (=source neurons)
             w_numerator = torch.sum(rev_activation, dim=1) + w_numerator_sensory
-            w_denominator = torch.sum(w_activation, dim=1) + w_denominator_sensory
 
             gleak = self.make_positive_fn(self._params["gleak"])
-            numerator = cm_t * v_pre + gleak * self._params["vleak"] + w_numerator
-            denominator = cm_t + gleak + w_denominator
 
-            # Avoid dividing by 0
-            v_pre = numerator / (denominator + self._epsilon)
-
-        return v_pre
-
+            # fitzhugh nagumo solver
+            v_pre = state[:, :, 0]
+            w_pre = state[:, :, 1]
+            v = v_pre + delta_t * (self._params["p"]*v_pre*v_pre+self._params["q"]*v_pre-w_pre+(gleak * self._params["vleak"] + w_numerator)/self._params["cm"])
+            w = (delta_t*self._params["a"]*self._params["b"]*v_pre + w_pre-0.7*self._params["a"])/(1+delta_t*self._params["a"]*self._params["c"])
+            v_pre = v
+            w_pre = w
+            state = torch.stack((v, w), dim=2)
+        
+        return state
+            
     def _map_inputs(self, inputs):
+        device = inputs.device
+        self._params["input_w"] = self._params["input_w"].to(device) 
+        self._params["input_b"] = self._params["input_b"].to(device) 
         if self._input_mapping in ["affine", "linear"]:
             inputs = inputs * self._params["input_w"]
         if self._input_mapping == "affine":
@@ -256,7 +333,7 @@ class LTCCell(nn.Module):
         return inputs
 
     def _map_outputs(self, state):
-        output = state
+        output = state[:, :, 0] # v
         if self.motor_size < self.state_size:
             output = output[:, 0 : self.motor_size]  # slice
 
@@ -279,7 +356,10 @@ class LTCCell(nn.Module):
         # Regularly sampled mode (elapsed time = 1 second)
         inputs = self._map_inputs(inputs)
 
-        next_state = self._ode_solver(inputs, states, elapsed_time)
+        # next_state = self._ode_solver(inputs, states, elapsed_time)
+        
+        # fitzhugh nagumo solver
+        next_state = self._ode_solver_fitz(inputs, states, elapsed_time)
 
         outputs = self._map_outputs(next_state)
 

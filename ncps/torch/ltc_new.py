@@ -17,11 +17,11 @@ from torch import nn
 from typing import Optional, Union
 import ncps
 from . import CfCCell
-from .ltc_cell import LTCCell
-from .lstm import LSTMCell
+from .ltc_cell_new import LTCCell_new as LTCCell
+from .lstm import LSTMCell_new as LSTMCell
 
 
-class LTC(nn.Module):
+class LTC_NEW(nn.Module):
     def __init__(
         self,
         input_size: int,
@@ -74,7 +74,7 @@ class LTC(nn.Module):
         :param implicit_param_constraints:
         """
 
-        super(LTC, self).__init__()
+        super(LTC_NEW, self).__init__()
         self.input_size = input_size
         self.wiring_or_units = units
         self.batch_first = batch_first
@@ -142,9 +142,9 @@ class LTC(nn.Module):
         batch_size, seq_len = input.size(batch_dim), input.size(seq_dim)
 
         if hx is None:
-            h_state = torch.zeros((batch_size, self.state_size), device=device)
+            h_state = torch.zeros((batch_size, self.state_size, 2), device=device)
             c_state = (
-                torch.zeros((batch_size, self.state_size), device=device)
+                torch.zeros((batch_size, self.state_size, 2), device=device)
                 if self.use_mixed
                 else None
             )
@@ -155,7 +155,7 @@ class LTC(nn.Module):
                 )
             h_state, c_state = hx if self.use_mixed else (hx, None)
             if is_batched:
-                if h_state.dim() != 2:
+                if h_state.dim() != 3:
                     msg = (
                         "For batched 2-D input, hx and cx should "
                         f"also be 2-D but got ({h_state.dim()}-D) tensor"

@@ -17,9 +17,11 @@
 
 
 from ncps.torch.ltc_cell import LTCCell
+from ncps.torch.ltc_cell_new import LTCCell_new
 from .cfc_cell import CfCCell
 from .wired_cfc_cell import WiredCfCCell
 from .cfc import CfC
+from .ltc_new import LTC_NEW
 from .ltc import LTC
 
-__all__ = ["CfC", "CfCCell", "LTC", "LTCCell", "WiredCfCCell"]
+__all__ = ["CfC", "CfCCell", "LTC", "LTCCell", "WiredCfCCell", "LTC_NEW", "LTCCell_NEW"]

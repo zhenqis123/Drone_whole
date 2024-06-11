@@ -66,6 +66,8 @@ class CfC(nn.Module):
         self.proj_size = proj_size
         self.batch_first = batch_first
         self.return_sequences = return_sequences
+        # print("test")
+        # raise ValueError(f"Cannot use backbone_units in wired mode")
 
         if isinstance(units, ncps.wirings.Wiring):
             self.wired_mode = True
@@ -127,7 +129,7 @@ class CfC(nn.Module):
                 timespans = timespans.unsqueeze(batch_dim)
 
         batch_size, seq_len = input.size(batch_dim), input.size(seq_dim)
-
+        # import pdb;pdb.set_trace()
         if hx is None:
             h_state = torch.zeros((batch_size, self.state_size), device=device)
             c_state = (
