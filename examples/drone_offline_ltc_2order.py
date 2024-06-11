@@ -232,16 +232,18 @@ def eval(model, val_loader, criterion):
             outputs, _ = model(inputs)
             a = outputs.view(outputs.size(0)*outputs.size(1), -1)
             b = labels.view(labels.size(0)*labels.size(1), -1)
+            c = inputs.view(inputs.size(0)*inputs.size(1), *inputs.shape[2:])
             tem = (a - b)/b
             A = np.concatenate((A, tem.cpu().numpy()),axis=0)
-            inputs_all = np.concatenate((inputs_all, inputs.cpu().numpy()), axis=0)
+            # print(inputs.shape)
+            inputs_all = np.concatenate((inputs_all, c.cpu().numpy()), axis=0)
             labels_all = np.concatenate((labels_all, b.cpu().numpy()), axis=0)
             outputs_all = np.concatenate((outputs_all, a.cpu().numpy()), axis=0)
-        saveVideo(f'./saved_image/output_test_{epochs}.mp4',
+        saveVideo(f'./saved_image/output_test_ltc2order_{epochs}.mp4',
                   inputs_all,
                   outputs_all,
                   labels_all)
-        generate_saliency_map(model, inputs_all)
+        # generate_saliency_map(model, inputs_all)
         condition = np.abs(A) < 0.5
         new_array = np.where(condition, 1, 0)
         acc = np.sum(new_array, axis=0)/new_array.shape[0]
@@ -262,18 +264,17 @@ def Saliency(model, device, val_loader):
         break
     
 def saveVideo(video_path, frames, output_commands, labels):
-    tensor = frames
-    tensor = tensor.view(-1, 1, 288, 512)
-    output_commands = output_commands.view(-1, 1)
-    labels = labels.view(-1, 1)
-    # 确保张量是一个 4D 张量 (batch_size, channels, height, width)
-    assert tensor.ndim == 4, "Tensor should be a 4D tensor (batch_size, channels, height, width)"
     
-    # 将 PyTorch 张量从 CHW 转为 HWC 格式
-    tensor = tensor.permute(0, 2, 3, 1)
-    tensor = tensor*255
-    # 将张量转换为 numpy 数组并确保类型为 uint8
-    frames = tensor.cpu().numpy().astype(np.uint8)
+    # import pdb;pdb.set_trace()
+    # tensor = tensor.view(tensor.shape[0], *tensor.shape[1:])
+    # output_commands = output_commands.view(-1, 1)
+    # labels = labels.view(-1, 1)
+    # 确保张量是一个 4D 张量 (batch_size, channels, height, width)
+    # assert frames == 4, "Tensor should be a 4D tensor (batch_size, channels, height, width)"
+    frames = frames.transpose(0, 2, 3, 1)
+    frames = frames * 255
+    frames = frames.astype(np.uint8)
+    
     
     # 获取帧的尺寸
     height, width, channels = frames[0].shape
@@ -283,11 +284,15 @@ def saveVideo(video_path, frames, output_commands, labels):
     
     # 创建 VideoWriter 对象
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 使用 mp4v 编码
-    video_writer = cv2.VideoWriter(video_path, fourcc, 2, (width, height), isColor=False)
+    video_writer = cv2.VideoWriter(video_path, fourcc, 4, (width, height))
     
     # 将每一帧写入视频
     for i in range(len(frames)):
         frame = frames[i].copy()
+
+        # 将灰度图像转换为彩色图像
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
         cv2.putText(frame, f"Output: {output_commands[i]}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         cv2.putText(frame, f"Label: {labels[i]}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         video_writer.write(frame)
@@ -352,8 +357,8 @@ if __name__ == "__main__":
     # train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
     train_dataset = Subset(dataset, range(0, train_size))
     test_dataset = Subset(dataset, range(train_size, len(dataset)))
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16)
-    val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=16)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=48)
+    val_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=48)
     model = DroneModel(1)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
